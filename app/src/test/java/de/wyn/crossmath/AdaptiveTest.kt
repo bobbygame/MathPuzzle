@@ -49,7 +49,7 @@ class AdaptiveTest {
         assertEquals(0f, adaptiveParams(1).opHideRatio, 0f)
         assertEquals(0f, adaptiveParams(29).opHideRatio, 0f)
         assertTrue(adaptiveParams(30).opHideRatio > 0f)
-        assertTrue(adaptiveParams(10_000).opHideRatio <= 0.5f)
+        assertTrue(adaptiveParams(10_000).opHideRatio <= 0.8f)
     }
 
     @Test
@@ -63,10 +63,13 @@ class AdaptiveTest {
     @Test
     fun paramsStayWithinLimits() {
         for (level in listOf(1, 10, 50, 100, 500, 100_000)) {
-            val p = adaptiveParams(level)
-            assertTrue(p.maxNum in 11..99)
-            assertTrue(p.equations in 3..10)
-            assertTrue(p.hideRatio <= 0.75f)
+            for (curve in CURVE_OPTIONS) {
+                val p = adaptiveParams(level, curve)
+                assertTrue(p.maxNum in 10..99)
+                assertTrue(p.equations in 3..10)
+                assertTrue(p.hideRatio in 0.3f..0.9f)
+                assertTrue(p.opHideRatio in 0f..0.8f)
+            }
         }
         assertEquals(99, adaptiveParams(500).maxNum)
         assertEquals(10, adaptiveParams(500).equations)
@@ -77,6 +80,34 @@ class AdaptiveTest {
         assertTrue(adaptiveParams(40).maxNum > adaptiveParams(5).maxNum)
         assertTrue(adaptiveParams(40).equations > adaptiveParams(5).equations)
         assertTrue(adaptiveParams(40).hideRatio > adaptiveParams(5).hideRatio)
+    }
+
+    @Test
+    fun hideRatioKeepsGrowingAtHighLevelsWithoutReachingLimit() {
+        val at300 = adaptiveParams(300).hideRatio
+        val at1000 = adaptiveParams(1000).hideRatio
+        assertTrue(at1000 > at300)
+        assertTrue(at1000 < 0.9f)
+        assertTrue(adaptiveParams(1000).opHideRatio > adaptiveParams(300).opHideRatio)
+    }
+
+    @Test
+    fun curveStrengthScalesGrowthButNotThresholds() {
+        assertTrue(adaptiveParams(40, 200).maxNum > adaptiveParams(40, 100).maxNum)
+        assertTrue(adaptiveParams(40, 50).maxNum < adaptiveParams(40, 100).maxNum)
+        assertTrue(adaptiveParams(40, 200).hideRatio > adaptiveParams(40, 100).hideRatio)
+        assertEquals(0f, adaptiveParams(29, 200).opHideRatio, 0f)
+        assertEquals(adaptiveOps(59), adaptiveParams(59, 200).ops)
+        assertEquals(adaptiveOps(60), adaptiveParams(60, 50).ops)
+    }
+
+    @Test
+    fun curveLabelsCoverAllOptions() {
+        assertEquals("Gemächlich", curveLabel(50))
+        assertEquals("Normal", curveLabel(100))
+        assertEquals("Steil", curveLabel(150))
+        assertEquals("Sehr steil", curveLabel(200))
+        assertTrue(CURVE_DEFAULT_PERCENT in CURVE_OPTIONS)
     }
 
     @Test
