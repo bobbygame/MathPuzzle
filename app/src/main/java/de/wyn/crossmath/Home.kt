@@ -17,14 +17,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 
+private fun hintsText(n: Int): String = when (n) {
+    0 -> "keine Hinweise"
+    1 -> "1 Hinweis"
+    else -> "$n Hinweise"
+}
+
 private fun describe(d: Difficulty): String {
-    val hints = when (d.maxHints) {
-        0 -> "keine Hinweise"
-        1 -> "1 Hinweis"
-        else -> "${d.maxHints} Hinweise"
-    }
     val ops = if (d.opHideRatio > 0f) " · Operatoren versteckt" else ""
-    return "$hints$ops"
+    return hintsText(d.maxHints) + ops
 }
 
 @Composable
@@ -38,13 +39,17 @@ fun HomeScreen(
     val streak = remember(history) { computeStreak(history) }
     var confirmDifficulty by remember { mutableStateOf<Difficulty?>(null) }
     var confirmDaily by remember { mutableStateOf(false) }
+    var confirmAdaptive by remember { mutableStateOf(false) }
     var confirmOpen by remember { mutableStateOf(false) }
 
-    fun requestStart(d: Difficulty?, daily: Boolean) {
+    fun requestStart(d: Difficulty?, daily: Boolean, adaptive: Boolean = false) {
         if (vm.canResume) {
             confirmDifficulty = d
             confirmDaily = daily
+            confirmAdaptive = adaptive
             confirmOpen = true
+        } else if (adaptive) {
+            vm.newAdaptive()
         } else if (daily) {
             vm.newDaily()
         } else if (d != null) {
@@ -107,6 +112,29 @@ fun HomeScreen(
             modifier = Modifier.fillMaxWidth()
         )
 
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { requestStart(null, false, adaptive = true) }
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    text = "Adaptiv",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Level ${vm.adaptiveLevel} · " +
+                            hintsText(adaptiveHints(vm.adaptiveLevel)),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = "Gewonnen: +1 Level · Abgebrochen: −2 Level",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
         Difficulty.values().forEach { d ->
             val s = stats[d]
             Card(
@@ -159,7 +187,8 @@ fun HomeScreen(
             confirmButton = {
                 Button(onClick = {
                     confirmOpen = false
-                    if (confirmDaily) vm.newDaily()
+                    if (confirmAdaptive) vm.newAdaptive()
+                    else if (confirmDaily) vm.newDaily()
                     else confirmDifficulty?.let { vm.newGame(it) }
                 }) { Text("Neu starten") }
             },

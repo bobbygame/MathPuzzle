@@ -54,6 +54,7 @@ class StatsRepository(private val ctx: Context) {
 
     private val saveKey = stringPreferencesKey("savegame")
     private val historyKey = stringPreferencesKey("history")
+    private val adaptiveLevelKey = intPreferencesKey("adaptive_level")
 
     val stats: Flow<Map<Difficulty, DiffStats>> = ctx.dataStore.data.map { prefs ->
         Difficulty.values().associateWith { d ->
@@ -80,6 +81,26 @@ class StatsRepository(private val ctx: Context) {
             val list = decodeRecords(p[historyKey]) +
                     SolveRecord(System.currentTimeMillis(), d, seconds, hints)
             p[historyKey] = encodeRecords(list.takeLast(MAX_RECORDS))
+        }
+    }
+
+    suspend fun loadAdaptiveLevel(): Int =
+        ctx.dataStore.data.first()[adaptiveLevelKey] ?: ADAPTIVE_START_LEVEL
+
+    suspend fun setAdaptiveLevel(level: Int) {
+        ctx.dataStore.edit { it[adaptiveLevelKey] = level }
+    }
+
+    /**
+     * Adaptiver Sieg: Eintrag im Protokoll (zählt für Statistik und Serie) und neues Level,
+     * in einem Schritt gespeichert. Zähler und Bestzeiten der festen Stufen bleiben unberührt.
+     */
+    suspend fun recordAdaptiveWin(level: Int, seconds: Int, hints: Int) {
+        ctx.dataStore.edit { p ->
+            val list = decodeRecords(p[historyKey]) +
+                    SolveRecord(System.currentTimeMillis(), adaptiveBucket(level), seconds, hints)
+            p[historyKey] = encodeRecords(list.takeLast(MAX_RECORDS))
+            p[adaptiveLevelKey] = levelAfterWin(level)
         }
     }
 
