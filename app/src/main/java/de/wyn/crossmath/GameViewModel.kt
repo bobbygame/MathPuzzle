@@ -37,6 +37,14 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     var inGame by mutableStateOf(false)
         private set
 
+    /** Gespeichertes Level des adaptiven Modus; wird beim nächsten adaptiven Rätsel verwendet. */
+    var adaptiveLevel by mutableIntStateOf(ADAPTIVE_START_LEVEL)
+        private set
+
+    /** Level des gerade gespielten Rätsels; null, wenn es kein adaptives Rätsel ist. */
+    var playLevel by mutableStateOf<Int?>(null)
+        private set
+
     private var pendingSave by mutableStateOf<SavedGame?>(null)
 
     val placed = mutableStateMapOf<Pos, Int>()
@@ -54,8 +62,11 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     private var timerJob: Job? = null
     private var recorded = false
 
+    val maxHints: Int
+        get() = playLevel?.let { adaptiveHints(it) } ?: difficulty.maxHints
+
     val hintsLeft: Int
-        get() = (difficulty.maxHints - hintsUsed).coerceAtLeast(0)
+        get() = (maxHints - hintsUsed).coerceAtLeast(0)
 
     val canResume: Boolean
         get() = (puzzle != null && !loading && !solved) || pendingSave != null
@@ -63,19 +74,26 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     init {
         startTimer()
         viewModelScope.launch {
+            adaptiveLevel = repo.loadAdaptiveLevel()
             val saved = repo.loadSave()?.let { SaveCodec.decode(it) }
             if (saved != null && puzzle == null && !inGame) pendingSave = saved
         }
     }
 
+    private fun label(d: Difficulty, daily: Boolean, level: Int?): String =
+        if (level != null) {
+            "Adaptiv · Level $level"
+        } else {
+            d.label + (if (daily) " (Tagesrätsel)" else "")
+        }
+
     fun resumeText(): String? {
         val pz = puzzle
         return if (pz != null && !loading && !solved) {
-            difficulty.label + (if (isDaily) " (Tagesrätsel)" else "") + " · " + fmtTime(seconds)
+            label(difficulty, isDaily, playLevel) + " · " + fmtTime(seconds)
         } else {
             pendingSave?.let {
-                it.difficulty.label + (if (it.daily) " (Tagesrätsel)" else "") +
-                        " · " + fmtTime(it.seconds)
+                label(it.difficulty, it.daily, it.adaptiveLevel) + " · " + fmtTime(it.seconds)
             }
         }
     }
@@ -101,6 +119,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     private fun restore(s: SavedGame) {
         difficulty = s.difficulty
         isDaily = s.daily
+        playLevel = s.adaptiveLevel
         puzzle = s.puzzle
         placed.clear()
         placed.putAll(s.placed)
@@ -128,17 +147,52 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun newGame(d: Difficulty = difficulty, seed: Long? = null) {
+    /**
+     * Neues Rätsel. Ohne Angaben wird im aktuellen Modus weitergespielt
+     * (adaptiv bleibt adaptiv). Eine feste Stufe oder ein Seed wählt den Modus explizit.
+     */
+    fun newGame(d: Difficulty? = null, seed: Long? = null) {
+        if (d == null && seed == null && playLevel != null) {
+            newAdaptive()
+        } else {
+            startGame(d ?: difficulty, seed, null)
+        }
+    }
+
+    fun newAdaptive() {
+        val level = adaptiveLevel
+        startGame(adaptiveBucket(level), null, level)
+    }
+
+    fun newDaily() {
+        newGame(Difficulty.MEDIUM, System.currentTimeMillis() / 86_400_000L)
+    }
+
+    /** Ein abgebrochenes, ungelöstes adaptives Rätsel gilt als verloren. */
+    private fun penalizeIfAbandoned() {
+        val abandoned = (puzzle != null && playLevel != null && !loading && !solved) ||
+                pendingSave?.adaptiveLevel != null
+        if (abandoned) {
+            val next = levelAfterLoss(adaptiveLevel)
+            adaptiveLevel = next
+            viewModelScope.launch { repo.setAdaptiveLevel(next) }
+        }
+    }
+
+    private fun startGame(d: Difficulty, seed: Long?, level: Int?) {
+        penalizeIfAbandoned()
         genJob?.cancel()
         pendingSave = null
         inGame = true
         loading = true
         isDaily = seed != null
+        val params = if (level != null) adaptiveParams(level) else d.params
         genJob = viewModelScope.launch {
             val pz = withContext(Dispatchers.Default) {
-                Generator.create(d, if (seed != null) Random(seed) else Random.Default)
+                Generator.create(params, if (seed != null) Random(seed) else Random.Default)
             }
             difficulty = d
+            playLevel = level
             puzzle = pz
             placed.clear()
             history.clear()
@@ -151,10 +205,6 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
             loading = false
             saveNow()
         }
-    }
-
-    fun newDaily() {
-        newGame(Difficulty.MEDIUM, System.currentTimeMillis() / 86_400_000L)
     }
 
     fun usedTiles(): Set<Int> = placed.values.toSet()
@@ -286,8 +336,14 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
             val s = seconds
             val clean = hintsUsed == 0
             val hints = hintsUsed
+            val level = playLevel
+            if (level != null) adaptiveLevel = levelAfterWin(level)
             viewModelScope.launch {
-                repo.recordWin(d, s, clean, hints)
+                if (level != null) {
+                    repo.recordAdaptiveWin(level, s, hints)
+                } else {
+                    repo.recordWin(d, s, clean, hints)
+                }
                 repo.clearSave()
             }
         }
@@ -297,7 +353,10 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         val pz = puzzle ?: return
         if (loading || solved) return
         val json = SaveCodec.encode(
-            SavedGame(difficulty, isDaily, pz, placed.toMap(), history.toList(), seconds, hintsUsed)
+            SavedGame(
+                difficulty, isDaily, pz, placed.toMap(), history.toList(),
+                seconds, hintsUsed, playLevel
+            )
         )
         viewModelScope.launch { repo.saveGame(json) }
     }

@@ -10,7 +10,9 @@ data class SavedGame(
     val placed: Map<Pos, Int>,
     val history: List<Pos>,
     val seconds: Int,
-    val hintsUsed: Int
+    val hintsUsed: Int,
+    /** Level eines adaptiven Rätsels, null bei festen Stufen und Tagesrätsel. */
+    val adaptiveLevel: Int? = null
 )
 
 object SaveCodec {
@@ -24,6 +26,7 @@ object SaveCodec {
         o.put("sec", s.seconds)
         o.put("hints", s.hintsUsed)
         o.put("size", s.puzzle.size)
+        s.adaptiveLevel?.let { o.put("lvl", it) }
 
         val cells = JSONArray()
         for ((p, t) in s.puzzle.cells) cells.put(JSONArray().put(p.first).put(p.second).put(t))
@@ -102,7 +105,8 @@ object SaveCodec {
             placed = placed,
             history = hist,
             seconds = o.getInt("sec"),
-            hintsUsed = o.getInt("hints")
+            hintsUsed = o.getInt("hints"),
+            adaptiveLevel = if (o.has("lvl")) o.getInt("lvl") else null
         )
     } catch (e: Exception) {
         null
