@@ -34,6 +34,8 @@ fun HomeScreen(
     onOpenStats: () -> Unit
 ) {
     val stats by vm.stats.collectAsState(initial = emptyMap())
+    val history by vm.solveHistory.collectAsState(initial = emptyList())
+    val streak = remember(history) { computeStreak(history) }
     var confirmDifficulty by remember { mutableStateOf<Difficulty?>(null) }
     var confirmDaily by remember { mutableStateOf(false) }
     var confirmOpen by remember { mutableStateOf(false) }
@@ -74,6 +76,15 @@ fun HomeScreen(
             fontSize = 36.sp,
             fontWeight = FontWeight.Bold
         )
+
+        if (streak.current > 0) {
+            Text(
+                text = "🔥 Serie: ${streak.current} " +
+                        (if (streak.current == 1) "Tag" else "Tage") +
+                        " · Längste: ${streak.longest}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
 
         Spacer(Modifier.height(12.dp))
 
