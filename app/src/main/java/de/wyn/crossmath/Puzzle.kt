@@ -4,6 +4,17 @@ import kotlin.random.Random
 
 typealias Pos = Pair<Int, Int>
 
+/** Parameter für den Generator. Gemeinsam genutzt von festen und adaptiven Stufen. */
+data class GenParams(
+    val maxNum: Int,
+    val ops: String,
+    val hideRatio: Float,
+    val opHideRatio: Float,
+    val equations: Int,
+    /** Anteil von + und - unter den Operatoren, null = alle Operatoren gleich wahrscheinlich. */
+    val plusMinusShare: Float? = null
+)
+
 enum class Difficulty(
     val label: String,
     val maxNum: Int,
@@ -16,7 +27,10 @@ enum class Difficulty(
     EASY("Einfach", 20, "+-", 0.35f, 0f, 4, 0),
     MEDIUM("Mittel", 50, "+-×", 0.5f, 0f, 6, 1),
     HARD("Schwer", 99, "+-×÷", 0.6f, 0.3f, 8, 2),
-    EXPERT("Experte", 99, "+-×÷", 0.75f, 0.5f, 10, 3)
+    EXPERT("Experte", 99, "+-×÷", 0.75f, 0.5f, 10, 3);
+
+    val params: GenParams
+        get() = GenParams(maxNum, ops, hideRatio, opHideRatio, equations)
 }
 
 data class Equation(val cells: List<Pos>)
@@ -46,7 +60,9 @@ class Puzzle(
 object Generator {
     private const val N = 11
 
-    fun create(d: Difficulty, rnd: Random = Random.Default): Puzzle {
+    fun create(d: Difficulty, rnd: Random = Random.Default): Puzzle = create(d.params, rnd)
+
+    fun create(d: GenParams, rnd: Random = Random.Default): Puzzle {
         while (true) {
             val (grid, eqs) = buildGrid(d, rnd) ?: continue
             val numbers = grid.filter { !isOp(it.value) && it.value != "=" }.keys.shuffled(rnd)
@@ -129,9 +145,21 @@ object Generator {
         return if (aborted) -1 else count
     }
 
-    private fun randomEq(d: Difficulty, rnd: Random, idx: Int?, v: String?): List<String>? {
+    private fun pickOp(d: GenParams, rnd: Random): Char {
+        val share = d.plusMinusShare
+        if (share != null) {
+            val pm = d.ops.filter { it == '+' || it == '-' }
+            val md = d.ops.filter { it != '+' && it != '-' }
+            if (pm.isNotEmpty() && md.isNotEmpty()) {
+                return if (rnd.nextFloat() < share) pm.random(rnd) else md.random(rnd)
+            }
+        }
+        return d.ops.random(rnd)
+    }
+
+    private fun randomEq(d: GenParams, rnd: Random, idx: Int?, v: String?): List<String>? {
         repeat(300) {
-            val op = d.ops.random(rnd)
+            val op = pickOp(d, rnd)
             val a: Int
             val b: Int
             val c: Int
@@ -149,7 +177,7 @@ object Generator {
         return null
     }
 
-    private fun buildGrid(d: Difficulty, rnd: Random): Pair<Map<Pos, String>, List<Equation>>? {
+    private fun buildGrid(d: GenParams, rnd: Random): Pair<Map<Pos, String>, List<Equation>>? {
         val grid = HashMap<Pos, String>()
         val horiz = HashSet<Pos>()
         val vert = HashSet<Pos>()
