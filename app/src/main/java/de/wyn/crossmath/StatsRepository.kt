@@ -79,11 +79,7 @@ class StatsRepository(private val ctx: Context) {
 
     /** Höchstes jemals erreichtes Level; bei älteren Daten mindestens das aktuelle Level. */
     val maxLevel: Flow<Int> = ctx.dataStore.data.map { prefs ->
-        maxOf(
-            prefs[maxLevelKey] ?: 0,
-            prefs[adaptiveLevelKey] ?: 0,
-            ADAPTIVE_START_LEVEL
-        )
+        nextMaxLevel(prefs[maxLevelKey], prefs[adaptiveLevelKey], ADAPTIVE_START_LEVEL)
     }
 
     suspend fun recordWin(d: Difficulty, seconds: Int, countBest: Boolean, hints: Int) {
@@ -113,12 +109,7 @@ class StatsRepository(private val ctx: Context) {
 
     /** Setzt das Level, hängt es an den Levelverlauf an und hält das Höchstlevel aktuell. */
     private fun recordLevel(p: MutablePreferences, level: Int) {
-        val previousMax = maxOf(
-            p[maxLevelKey] ?: 0,
-            p[adaptiveLevelKey] ?: 0,
-            ADAPTIVE_START_LEVEL
-        )
-        p[maxLevelKey] = maxOf(previousMax, level)
+        p[maxLevelKey] = nextMaxLevel(p[maxLevelKey], p[adaptiveLevelKey], level)
         p[adaptiveLevelKey] = level
         val points = appendLevelPoint(
             decodeLevelPoints(p[levelHistoryKey]),
@@ -141,7 +132,7 @@ class StatsRepository(private val ctx: Context) {
             val list = decodeRecords(p[historyKey]) +
                     SolveRecord(System.currentTimeMillis(), adaptiveBucket(level), seconds, hints)
             p[historyKey] = encodeRecords(list.takeLast(MAX_RECORDS))
-            recordLevel(p, levelAfterWin(level))
+            recordLevel(p, levelAfter(level, won = true))
         }
     }
 

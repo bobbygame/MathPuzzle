@@ -69,10 +69,10 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     private var recorded = false
 
     val maxHints: Int
-        get() = playLevel?.let { adaptiveHints(it) } ?: difficulty.maxHints
+        get() = maxHintsFor(playLevel, difficulty)
 
     val hintsLeft: Int
-        get() = (maxHints - hintsUsed).coerceAtLeast(0)
+        get() = hintsLeftFor(maxHints, hintsUsed)
 
     val canResume: Boolean
         get() = (puzzle != null && !loading && !solved) || pendingSave != null
@@ -92,20 +92,13 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repo.setCurve(percent) }
     }
 
-    private fun label(d: Difficulty, daily: Boolean, level: Int?): String =
-        if (level != null) {
-            "Adaptiv · Level $level"
-        } else {
-            d.label + (if (daily) " (Tagesrätsel)" else "")
-        }
-
     fun resumeText(): String? {
         val pz = puzzle
         return if (pz != null && !loading && !solved) {
-            label(difficulty, isDaily, playLevel) + " · " + fmtTime(seconds)
+            modeLabel(difficulty, isDaily, playLevel) + " · " + fmtTime(seconds)
         } else {
             pendingSave?.let {
-                label(it.difficulty, it.daily, it.adaptiveLevel) + " · " + fmtTime(it.seconds)
+                modeLabel(it.difficulty, it.daily, it.adaptiveLevel) + " · " + fmtTime(it.seconds)
             }
         }
     }
@@ -151,7 +144,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         timerJob = viewModelScope.launch {
             while (true) {
                 delay(1000)
-                if (inGame && puzzle != null && !loading && !paused && !settingsOpen && !solved) {
+                if (timerShouldRun(inGame, puzzle != null, loading, paused, settingsOpen, solved)) {
                     seconds++
                     if (seconds % 10 == 0) saveNow()
                 }
@@ -164,7 +157,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
      * (adaptiv bleibt adaptiv). Eine feste Stufe oder ein Seed wählt den Modus explizit.
      */
     fun newGame(d: Difficulty? = null, seed: Long? = null) {
-        if (d == null && seed == null && playLevel != null) {
+        if (resolveStartMode(d, seed, playLevel) == StartMode.ADAPTIVE) {
             newAdaptive()
         } else {
             startGame(d ?: difficulty, seed, null)
@@ -182,10 +175,15 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Ein abgebrochenes, ungelöstes adaptives Rätsel gilt als verloren. */
     private fun penalizeIfAbandoned() {
-        val abandoned = (puzzle != null && playLevel != null && !loading && !solved) ||
-                pendingSave?.adaptiveLevel != null
+        val abandoned = isAbandonedAdaptive(
+            hasPuzzle = puzzle != null,
+            playLevel = playLevel,
+            loading = loading,
+            solved = solved,
+            pendingAdaptive = pendingSave?.adaptiveLevel != null
+        )
         if (abandoned) {
-            val next = levelAfterLoss(adaptiveLevel)
+            val next = levelAfter(adaptiveLevel, won = false)
             adaptiveLevel = next
             viewModelScope.launch { repo.recordAdaptiveLoss(next) }
         }
@@ -349,7 +347,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
             val clean = hintsUsed == 0
             val hints = hintsUsed
             val level = playLevel
-            if (level != null) adaptiveLevel = levelAfterWin(level)
+            if (level != null) adaptiveLevel = levelAfter(level, won = true)
             viewModelScope.launch {
                 if (level != null) {
                     repo.recordAdaptiveWin(level, s, hints)
