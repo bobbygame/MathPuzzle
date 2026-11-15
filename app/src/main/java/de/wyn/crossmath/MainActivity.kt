@@ -8,10 +8,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -179,26 +177,15 @@ fun GameScreen(vm: GameViewModel) {
             Modifier.fillMaxSize().padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            if (adaptive == null) {
-                Row(
-                    Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Difficulty.values().forEach { d ->
-                        FilterChip(
-                            selected = vm.difficulty == d && !vm.isDaily,
-                            onClick = { vm.newGame(d) },
-                            label = { Text(d.label) }
-                        )
-                    }
-                }
-            } else {
-                Text(
-                    text = "Adaptiv · Level $adaptive",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            Text(
+                text = when {
+                    adaptive != null -> "Adaptiv · Level $adaptive"
+                    vm.isDaily -> "Tagesrätsel"
+                    else -> vm.difficulty.label
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
 
             Row(
                 Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -206,16 +193,11 @@ fun GameScreen(vm: GameViewModel) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "⏱ ${fmtTime(vm.seconds)}" + if (vm.isDaily) "  · Tagesrätsel" else "",
+                    "⏱ ${fmtTime(vm.seconds)}",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium
                 )
-                Row {
-                    if (adaptive == null) {
-                        TextButton(onClick = { vm.newDaily() }) { Text("Täglich") }
-                    }
-                    TextButton(onClick = { showStats = true }) { Text("Statistik") }
-                }
+                TextButton(onClick = { showStats = true }) { Text("Statistik") }
             }
 
             if (pz == null || vm.loading) {
