@@ -21,6 +21,8 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = StatsRepository(app)
     val stats = repo.stats
     val solveHistory = repo.history
+    val levelHistory = repo.levelHistory
+    val maxLevel = repo.maxLevel
 
     var difficulty by mutableStateOf(Difficulty.EASY)
         private set
@@ -39,6 +41,10 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Gespeichertes Level des adaptiven Modus; wird beim nächsten adaptiven Rätsel verwendet. */
     var adaptiveLevel by mutableIntStateOf(ADAPTIVE_START_LEVEL)
+        private set
+
+    /** Kurvenstärke des adaptiven Modus in Prozent; nur im Hauptmenü änderbar. */
+    var curvePercent by mutableIntStateOf(CURVE_DEFAULT_PERCENT)
         private set
 
     /** Level des gerade gespielten Rätsels; null, wenn es kein adaptives Rätsel ist. */
@@ -75,9 +81,15 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         startTimer()
         viewModelScope.launch {
             adaptiveLevel = repo.loadAdaptiveLevel()
+            curvePercent = repo.loadCurve()
             val saved = repo.loadSave()?.let { SaveCodec.decode(it) }
             if (saved != null && puzzle == null && !inGame) pendingSave = saved
         }
+    }
+
+    fun setCurve(percent: Int) {
+        curvePercent = percent
+        viewModelScope.launch { repo.setCurve(percent) }
     }
 
     private fun label(d: Difficulty, daily: Boolean, level: Int?): String =
@@ -175,7 +187,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         if (abandoned) {
             val next = levelAfterLoss(adaptiveLevel)
             adaptiveLevel = next
-            viewModelScope.launch { repo.setAdaptiveLevel(next) }
+            viewModelScope.launch { repo.recordAdaptiveLoss(next) }
         }
     }
 
@@ -186,7 +198,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         inGame = true
         loading = true
         isDaily = seed != null
-        val params = if (level != null) adaptiveParams(level) else d.params
+        val params = if (level != null) adaptiveParams(level, curvePercent) else d.params
         genJob = viewModelScope.launch {
             val pz = withContext(Dispatchers.Default) {
                 Generator.create(params, if (seed != null) Random(seed) else Random.Default)

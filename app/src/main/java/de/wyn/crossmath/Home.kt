@@ -1,6 +1,7 @@
 package de.wyn.crossmath
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -36,11 +37,14 @@ fun HomeScreen(
 ) {
     val stats by vm.stats.collectAsState(initial = emptyMap())
     val history by vm.solveHistory.collectAsState(initial = emptyList())
+    val levelHistory by vm.levelHistory.collectAsState(initial = emptyList())
+    val maxLevel by vm.maxLevel.collectAsState(initial = ADAPTIVE_START_LEVEL)
     val streak = remember(history) { computeStreak(history) }
     var confirmDifficulty by remember { mutableStateOf<Difficulty?>(null) }
     var confirmDaily by remember { mutableStateOf(false) }
     var confirmAdaptive by remember { mutableStateOf(false) }
     var confirmOpen by remember { mutableStateOf(false) }
+    var showLevelHistory by remember { mutableStateOf(false) }
 
     fun requestStart(d: Difficulty?, daily: Boolean, adaptive: Boolean = false) {
         if (vm.canResume) {
@@ -117,14 +121,14 @@ fun HomeScreen(
                 .fillMaxWidth()
                 .clickable { requestStart(null, false, adaptive = true) }
         ) {
-            Column(Modifier.padding(16.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = "Adaptiv",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Level ${vm.adaptiveLevel} · " +
+                    text = "Level ${vm.adaptiveLevel} · Höchstes: $maxLevel · " +
                             hintsText(adaptiveHints(vm.adaptiveLevel)),
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -132,6 +136,25 @@ fun HomeScreen(
                     text = "Gewonnen: +1 Level · Abgebrochen: −2 Level",
                     style = MaterialTheme.typography.bodySmall
                 )
+                Text(
+                    text = "Kurve",
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    CURVE_OPTIONS.forEach { percent ->
+                        FilterChip(
+                            selected = vm.curvePercent == percent,
+                            onClick = { vm.setCurve(percent) },
+                            label = { Text(curveLabel(percent)) }
+                        )
+                    }
+                }
+                TextButton(onClick = { showLevelHistory = true }) {
+                    Text("Levelverlauf")
+                }
             }
         }
 
@@ -172,6 +195,45 @@ fun HomeScreen(
             TextButton(onClick = onOpenStats) { Text("Statistik") }
             TextButton(onClick = onOpenSettings) { Text("Einstellungen") }
         }
+    }
+
+    if (showLevelHistory) {
+        AlertDialog(
+            onDismissRequest = { showLevelHistory = false },
+            title = { Text("Levelverlauf") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Aktuell: ${vm.adaptiveLevel} · Höchstes: $maxLevel")
+                    if (levelHistory.isEmpty()) {
+                        Text(
+                            "Noch kein Verlauf. Er entsteht, sobald du ein adaptives " +
+                                    "Rätsel löst oder abbrichst."
+                        )
+                    } else {
+                        LevelChart(
+                            points = levelHistory,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(160.dp)
+                        )
+                        Text(
+                            text = "${fmtDate(levelHistory.first().time)} – " +
+                                    fmtDate(levelHistory.last().time) +
+                                    " · ${levelHistory.size} Einträge",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            text = "Level im Diagramm: ${levelHistory.minOf { it.level }}" +
+                                    " bis ${levelHistory.maxOf { it.level }}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLevelHistory = false }) { Text("OK") }
+            }
+        )
     }
 
     if (confirmOpen) {
