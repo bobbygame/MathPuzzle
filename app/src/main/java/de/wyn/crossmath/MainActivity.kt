@@ -158,6 +158,7 @@ fun GameScreen(vm: GameViewModel) {
     val settings = LocalAppSettings.current
     val currentWinHaptics by rememberUpdatedState(settings.winHaptics)
     val pz = vm.puzzle
+    val adaptive = vm.playLevel
 
     LaunchedEffect(vm.showWin) {
         if (vm.showWin && currentWinHaptics) {
@@ -178,17 +179,25 @@ fun GameScreen(vm: GameViewModel) {
             Modifier.fillMaxSize().padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Difficulty.values().forEach { d ->
-                    FilterChip(
-                        selected = vm.difficulty == d && !vm.isDaily,
-                        onClick = { vm.newGame(d) },
-                        label = { Text(d.label) }
-                    )
+            if (adaptive == null) {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Difficulty.values().forEach { d ->
+                        FilterChip(
+                            selected = vm.difficulty == d && !vm.isDaily,
+                            onClick = { vm.newGame(d) },
+                            label = { Text(d.label) }
+                        )
+                    }
                 }
+            } else {
+                Text(
+                    text = "Adaptiv · Level $adaptive",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
             Row(
@@ -202,7 +211,9 @@ fun GameScreen(vm: GameViewModel) {
                     fontWeight = FontWeight.Medium
                 )
                 Row {
-                    TextButton(onClick = { vm.newDaily() }) { Text("Täglich") }
+                    if (adaptive == null) {
+                        TextButton(onClick = { vm.newDaily() }) { Text("Täglich") }
+                    }
                     TextButton(onClick = { showStats = true }) { Text("Statistik") }
                 }
             }
@@ -247,8 +258,12 @@ fun GameScreen(vm: GameViewModel) {
             text = {
                 Column {
                     Text("Zeit: ${fmtTime(vm.seconds)}")
-                    Text("Hinweise: ${vm.hintsUsed} / ${vm.difficulty.maxHints}")
-                    stats[vm.difficulty]?.bestSeconds?.let { Text("Bestzeit: ${fmtTime(it)}") }
+                    Text("Hinweise: ${vm.hintsUsed} / ${vm.maxHints}")
+                    if (adaptive != null) {
+                        Text("Nächstes Level: ${vm.adaptiveLevel}")
+                    } else {
+                        stats[vm.difficulty]?.bestSeconds?.let { Text("Bestzeit: ${fmtTime(it)}") }
+                    }
                 }
             },
             confirmButton = {
