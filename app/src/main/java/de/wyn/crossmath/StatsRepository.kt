@@ -2,6 +2,7 @@ package de.wyn.crossmath
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -55,6 +56,9 @@ class StatsRepository(private val ctx: Context) {
     private val saveKey = stringPreferencesKey("savegame")
     private val historyKey = stringPreferencesKey("history")
     private val adaptiveLevelKey = intPreferencesKey("adaptive_level")
+    private val maxLevelKey = intPreferencesKey("adaptive_max_level")
+    private val levelHistoryKey = stringPreferencesKey("level_history")
+    private val curveKey = intPreferencesKey("adaptive_curve")
 
     val stats: Flow<Map<Difficulty, DiffStats>> = ctx.dataStore.data.map { prefs ->
         Difficulty.values().associateWith { d ->
@@ -67,6 +71,19 @@ class StatsRepository(private val ctx: Context) {
 
     val history: Flow<List<SolveRecord>> = ctx.dataStore.data.map { prefs ->
         decodeRecords(prefs[historyKey])
+    }
+
+    val levelHistory: Flow<List<LevelPoint>> = ctx.dataStore.data.map { prefs ->
+        decodeLevelPoints(prefs[levelHistoryKey])
+    }
+
+    /** Höchstes jemals erreichtes Level; bei älteren Daten mindestens das aktuelle Level. */
+    val maxLevel: Flow<Int> = ctx.dataStore.data.map { prefs ->
+        maxOf(
+            prefs[maxLevelKey] ?: 0,
+            prefs[adaptiveLevelKey] ?: 0,
+            ADAPTIVE_START_LEVEL
+        )
     }
 
     suspend fun recordWin(d: Difficulty, seconds: Int, countBest: Boolean, hints: Int) {
@@ -87,8 +104,32 @@ class StatsRepository(private val ctx: Context) {
     suspend fun loadAdaptiveLevel(): Int =
         ctx.dataStore.data.first()[adaptiveLevelKey] ?: ADAPTIVE_START_LEVEL
 
-    suspend fun setAdaptiveLevel(level: Int) {
-        ctx.dataStore.edit { it[adaptiveLevelKey] = level }
+    suspend fun loadCurve(): Int =
+        ctx.dataStore.data.first()[curveKey] ?: CURVE_DEFAULT_PERCENT
+
+    suspend fun setCurve(percent: Int) {
+        ctx.dataStore.edit { it[curveKey] = percent }
+    }
+
+    /** Setzt das Level, hängt es an den Levelverlauf an und hält das Höchstlevel aktuell. */
+    private fun recordLevel(p: MutablePreferences, level: Int) {
+        val previousMax = maxOf(
+            p[maxLevelKey] ?: 0,
+            p[adaptiveLevelKey] ?: 0,
+            ADAPTIVE_START_LEVEL
+        )
+        p[maxLevelKey] = maxOf(previousMax, level)
+        p[adaptiveLevelKey] = level
+        val points = appendLevelPoint(
+            decodeLevelPoints(p[levelHistoryKey]),
+            LevelPoint(System.currentTimeMillis(), level)
+        )
+        p[levelHistoryKey] = encodeLevelPoints(points)
+    }
+
+    /** Abgebrochenes adaptives Rätsel: neues (niedrigeres) Level speichern. */
+    suspend fun recordAdaptiveLoss(newLevel: Int) {
+        ctx.dataStore.edit { p -> recordLevel(p, newLevel) }
     }
 
     /**
@@ -100,7 +141,7 @@ class StatsRepository(private val ctx: Context) {
             val list = decodeRecords(p[historyKey]) +
                     SolveRecord(System.currentTimeMillis(), adaptiveBucket(level), seconds, hints)
             p[historyKey] = encodeRecords(list.takeLast(MAX_RECORDS))
-            p[adaptiveLevelKey] = levelAfterWin(level)
+            recordLevel(p, levelAfterWin(level))
         }
     }
 
